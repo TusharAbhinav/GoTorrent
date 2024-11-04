@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
+	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/torrent"
 	bencode "github.com/jackpal/bencode-go"
 )
 
@@ -49,7 +52,6 @@ func decodeBencode(bencodedString string) (interface{}, error) {
 }
 
 func main() {
-	// You can use print statements as follows for debugging, they'll be visible when running tests.
 	fmt.Fprintln(os.Stderr, "Logs from your program will appear here!")
 
 	command := os.Args[1]
@@ -63,11 +65,32 @@ func main() {
 			fmt.Println(err)
 			return
 		}
-
 		jsonOutput, _ := json.Marshal(decoded)
 		fmt.Println(string(jsonOutput))
-	} else {
-		fmt.Println("Unknown command: " + command)
-		os.Exit(1)
 	}
+	if command == "info" {
+		bencodedValue := os.Args[2]
+		file, err := os.Open(bencodedValue)
+		if err!=nil{
+			fmt.Printf("error opening file %s",bencodedValue)
+			return
+		}
+		defer file.Close()
+		torrentData,err := io.ReadAll(file)
+		if err!=nil{
+			fmt.Printf("error reading file %s",bencodedValue)
+			return
+		}
+		buf:=bytes.NewReader(torrentData)
+		decoded, err := bencode.Decode(buf)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		metadata := torrent.Torrent{}
+		jsonOutput, _ := json.Marshal(decoded)
+		json.Unmarshal(jsonOutput, &metadata)
+		fmt.Println("Tracker URL:", metadata.Announce)
+		fmt.Println("Length:", metadata.Info.Length)
+	} 
 }
