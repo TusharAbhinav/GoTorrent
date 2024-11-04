@@ -4,9 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
-	"unicode"
-	// bencode "github.com/jackpal/bencode-go"
+	"strings"
+	bencode "github.com/jackpal/bencode-go"
 )
 
 // Ensures gofmt doesn't remove the "os" encoding/json import (feel free to remove this!)
@@ -15,36 +14,38 @@ var _ = json.Marshal
 // Example:
 // - 5:hello -> hello
 // - 10:hello12345 -> hello12345
+
+// func decodeString(bencodedString string) (string, error) {
+// 	var firstColonIndex int
+
+// 	for i := 0; i < len(bencodedString); i++ {
+// 		if bencodedString[i] == ':' {
+// 			firstColonIndex = i
+// 			break
+// 		}
+// 	}
+
+// 	lengthStr := bencodedString[:firstColonIndex]
+
+// 	length, err := strconv.Atoi(lengthStr)
+// 	if err != nil {
+// 		return "", err
+// 	}
+
+//		return bencodedString[firstColonIndex+1 : firstColonIndex+1+length], nil
+//	}
+//
+//	func decodeInteger(bencodedString string) (int, error) {
+//		length := len(bencodedString)
+//		n, err := strconv.Atoi(bencodedString[1 : length-1])
+//		if err != nil {
+//			return -1, err
+//		}
+//		return n, nil
+//	}
 func decodeBencode(bencodedString string) (interface{}, error) {
-	if unicode.IsDigit(rune(bencodedString[0])) {
-		var firstColonIndex int
-
-		for i := 0; i < len(bencodedString); i++ {
-			if bencodedString[i] == ':' {
-				firstColonIndex = i
-				break
-			}
-		}
-
-		lengthStr := bencodedString[:firstColonIndex]
-
-		length, err := strconv.Atoi(lengthStr)
-		if err != nil {
-			return "", err
-		}
-
-		return bencodedString[firstColonIndex+1 : firstColonIndex+1+length], nil
-	} else {
-		if bencodedString[0] == 'i' {
-			length := len(bencodedString)
-			n, err := strconv.Atoi(bencodedString[1 : length-1])
-			if err != nil {
-				return -1, err
-			}
-			return n, nil
-		}
-	}
-	return "", nil
+	data, err := bencode.Decode(strings.NewReader(bencodedString))
+	return data, err
 }
 
 func main() {
