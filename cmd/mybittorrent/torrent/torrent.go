@@ -7,6 +7,6 @@ type InfoData struct {
 	Pieces       string `bencode:"pieces"`
 }
 type Torrent struct {
-	Announce string
-	Info     InfoData
+	Announce string   `bencode:"announce"`
+	Info     InfoData `bencode:"info"`
 }

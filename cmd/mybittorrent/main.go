@@ -53,6 +53,12 @@ func decodeBencode(bencodedString string) (interface{}, error) {
 	data, err := bencode.Decode(strings.NewReader(bencodedString))
 	return data, err
 }
+// func extractSHA1(pieces []byte) {
+// 	startInd:=0
+// 	for i := 0; i < len(pieces); i++ {
+		
+// 	}
+// }
 
 func main() {
 	fmt.Fprintln(os.Stderr, "Logs from your program will appear here!")
@@ -98,6 +104,8 @@ func main() {
 		}
 		hash := sha1.Sum(infoBuff.Bytes())
 		fmt.Println("Info Hash:", hex.EncodeToString(hash[:]))
+		fmt.Println("Piece Length:", infoData.Piece_length)
+		fmt.Println("Piece Hashes:",hex.EncodeToString([]byte(infoData.Pieces[:])))
 
 	}
 }
