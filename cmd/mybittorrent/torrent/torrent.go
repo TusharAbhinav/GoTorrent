@@ -1,12 +1,12 @@
 package torrent
 
-type infoData struct {
-	Length       int    `json:"length"`
-	Name         string `json:"name"`
-	Piece_length int    `json:"piece length"`
-	Pieces       string `json:"pieces"`
+type InfoData struct {
+	Length       int    `bencode:"length"`
+	Name         string `bencode:"name"`
+	Piece_length int    `bencode:"piece length"`
+	Pieces       string `bencode:"pieces"`
 }
 type Torrent struct {
-	Announce string   `json:"announce"`
-	Info     infoData `json:"info"`
+	Announce string
+	Info     InfoData
 }

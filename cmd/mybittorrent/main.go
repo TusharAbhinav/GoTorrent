@@ -2,11 +2,14 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+
 	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/torrent"
 	bencode "github.com/jackpal/bencode-go"
 )
@@ -71,26 +74,30 @@ func main() {
 	if command == "info" {
 		bencodedValue := os.Args[2]
 		file, err := os.Open(bencodedValue)
-		if err!=nil{
-			fmt.Printf("error opening file %s",bencodedValue)
+		if err != nil {
+			fmt.Printf("error opening file %s", bencodedValue)
 			return
 		}
 		defer file.Close()
-		torrentData,err := io.ReadAll(file)
-		if err!=nil{
-			fmt.Printf("error reading file %s",bencodedValue)
+		torrentData, err := io.ReadAll(file)
+		if err != nil {
+			fmt.Printf("error reading file %s", bencodedValue)
 			return
 		}
-		buf:=bytes.NewReader(torrentData)
-		decoded, err := bencode.Decode(buf)
+		buf := bytes.NewReader(torrentData)
+		metadata := torrent.Torrent{}
+		bencode.Unmarshal(buf, &metadata)
+		fmt.Println("Tracker URL:", metadata.Announce)
+		fmt.Println("Length:", metadata.Info.Length)
+		infoData := metadata.Info
+		var infoBuff bytes.Buffer
+		err = bencode.Marshal(&infoBuff, infoData)
 		if err != nil {
 			fmt.Println(err)
 			return
 		}
-		metadata := torrent.Torrent{}
-		jsonOutput, _ := json.Marshal(decoded)
-		json.Unmarshal(jsonOutput, &metadata)
-		fmt.Println("Tracker URL:", metadata.Announce)
-		fmt.Println("Length:", metadata.Info.Length)
-	} 
+		hash := sha1.Sum(infoBuff.Bytes())
+		fmt.Println("Info Hash:", hex.EncodeToString(hash[:]))
+
+	}
 }
