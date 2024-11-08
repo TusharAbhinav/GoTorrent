@@ -10,3 +10,8 @@ type Torrent struct {
 	Announce string   `bencode:"announce"`
 	Info     InfoData `bencode:"info"`
 }
+
+type TrackerResponse struct {
+	Interval int    `bencode:"interval"`
+	Peers    string `bencode:"peers"`
+}

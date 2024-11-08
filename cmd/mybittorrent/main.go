@@ -3,11 +3,17 @@ package main
 import (
 	"bytes"
 	"crypto/sha1"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+
+	// "net"
+	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/torrent"
@@ -53,13 +59,6 @@ func decodeBencode(bencodedString string) (interface{}, error) {
 	data, err := bencode.Decode(strings.NewReader(bencodedString))
 	return data, err
 }
-// func extractSHA1(pieces []byte) {
-// 	startInd:=0
-// 	for i := 0; i < len(pieces); i++ {
-		
-// 	}
-// }
-
 func main() {
 	fmt.Fprintln(os.Stderr, "Logs from your program will appear here!")
 
@@ -105,7 +104,59 @@ func main() {
 		hash := sha1.Sum(infoBuff.Bytes())
 		fmt.Println("Info Hash:", hex.EncodeToString(hash[:]))
 		fmt.Println("Piece Length:", infoData.Piece_length)
-		fmt.Println("Piece Hashes:",hex.EncodeToString([]byte(infoData.Pieces[:])))
+		fmt.Println("Piece Hashes:", hex.EncodeToString([]byte(infoData.Pieces)))
 
+	}
+	if command == "peers" {
+		bencodedValue := os.Args[2]
+		file, err := os.Open(bencodedValue)
+		if err != nil {
+			fmt.Printf("error opening file %s", bencodedValue)
+			return
+		}
+		defer file.Close()
+		torrentData, err := io.ReadAll(file)
+		if err != nil {
+			fmt.Printf("error reading file %s", bencodedValue)
+			return
+		}
+		buf := bytes.NewReader(torrentData)
+		metadata := torrent.Torrent{}
+		bencode.Unmarshal(buf, &metadata)
+		infoData := metadata.Info
+		var infoBuff bytes.Buffer
+		err = bencode.Marshal(&infoBuff, infoData)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		hash := sha1.Sum(infoBuff.Bytes())
+		trackerURL := metadata.Announce
+		baseURL, _ := url.Parse(trackerURL)
+		params := url.Values{}
+		params.Add("info_hash", string(hash[:]))
+		params.Add("peer_id", "tgtwvrxkbjmspmivqnsj")
+		params.Add("port", strconv.Itoa(6881))
+		params.Add("uploaded", strconv.Itoa(48))
+		params.Add("downloaded", strconv.Itoa(48))
+		params.Add("left", strconv.Itoa(metadata.Info.Length))
+		params.Add("compact", "1")
+		baseURL.RawQuery = params.Encode()
+		resp, err := http.Get(baseURL.String())
+		if err != nil {
+			fmt.Println("error fetching trackerURL", trackerURL)
+			return
+		}
+		defer resp.Body.Close()
+		trackerStruct := torrent.TrackerResponse{}
+		bencode.Unmarshal(resp.Body, &trackerStruct)
+		peerData := []byte(trackerStruct.Peers)
+		var peers []string
+		for i := 0; i < len(peerData); i += 6 {
+			ip := fmt.Sprintf("%d.%d.%d.%d", peerData[i], peerData[i+1], peerData[i+2], peerData[i+3])
+			port := binary.BigEndian.Uint16(peerData[i+4 : i+6])
+			peers = append(peers, fmt.Sprintf("%s:%d", ip, port))
+		}
+		fmt.Println("Peers:", peers)
 	}
 }
