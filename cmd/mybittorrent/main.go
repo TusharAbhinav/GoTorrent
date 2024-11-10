@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/torrent"
+	bencode "github.com/jackpal/bencode-go"
 	"io"
 	"net"
 	"net/http"
@@ -14,9 +16,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-
-	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/torrent"
-	bencode "github.com/jackpal/bencode-go"
 )
 
 // Ensures gofmt doesn't remove the "os" encoding/json import (feel free to remove this!)
@@ -168,6 +167,20 @@ func completeHandshake(tcpConn *net.TCPConn, infoHash [20]byte) string {
 	}
 	return hex.EncodeToString(peerID[:])
 }
+func savePieceToFile(pieceData []byte, downloadPath string) error {
+	file, err := os.OpenFile(downloadPath, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("error opening file: %v", err)
+	}
+	defer file.Close()
+
+	_, err = file.Write(pieceData)
+	if err != nil {
+		return fmt.Errorf("error writing piece data to file: %v", err)
+	}
+
+	return nil
+}
 func connectTCP(bencodedValue string, peerAddr string) *net.TCPConn {
 	metadata, err := loadTorrentFile(bencodedValue)
 	if err != nil {
@@ -190,25 +203,10 @@ func connectTCP(bencodedValue string, peerAddr string) *net.TCPConn {
 		fmt.Println(err)
 		return nil
 	}
-	// tcpConn.SetDeadline(time.Now().Add(5 * time.Second))
 	peerID := completeHandshake(tcpConn, infoHash)
 
 	fmt.Println("Peer ID:", peerID)
 	return tcpConn
-}
-func savePieceToFile(pieceData []byte, downloadPath string) error {
-	file, err := os.OpenFile(downloadPath, os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("error opening file: %v", err)
-	}
-	defer file.Close()
-
-	_, err = file.Write(pieceData)
-	if err != nil {
-		return fmt.Errorf("error writing piece data to file: %v", err)
-	}
-
-	return nil
 }
 func downloadPiece(bencodedValue string, downloadPath string, pieceIndex string) {
 	metadata, err := loadTorrentFile(bencodedValue)
@@ -219,11 +217,27 @@ func downloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 	peers := peersCommand(bencodedValue)
 	tcpConn := connectTCP(bencodedValue, peers[2])
 	pieceData := make([]byte, 0)
-	totalBlocks := (metadata.Info.Piece_length) / (16 * 1024)
-	fmt.Println("total blocks", totalBlocks)
 	pieceInd, _ := strconv.Atoi(pieceIndex)
+
+	pieceLength := metadata.Info.Piece_length
+	//total number of pieces
+	// eg: len(metadata.Info.Pieces)/20 // Number of pieces
+	// 60/20 = 3 pieces
+
+	// len(metadata.Info.Pieces)/20 - 1 // Index of last piece
+	// 3-1 = 2 (pieces are 0-indexed))
+	if pieceInd == len(metadata.Info.Pieces)/20-1 {
+		lastPieceLength := metadata.Info.Length % metadata.Info.Piece_length
+		if lastPieceLength > 0 {
+			pieceLength = lastPieceLength
+		}
+	}
+	totalBlocks := (pieceLength)/(16*1024) + 1
+	fmt.Println("total blocks", totalBlocks)
+
 	pieceReceivedIndex := 0
 	defer tcpConn.Close()
+
 	for {
 		messageLength := make([]byte, 4)
 		_, err := io.ReadFull(tcpConn, messageLength)
@@ -245,7 +259,6 @@ func downloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 		id := uint8(messageID[0])
 		switch id {
 		case 5:
-
 			fmt.Println("Received bitfield message")
 			payload := make([]byte, length-1)
 			_, err := io.ReadFull(tcpConn, payload)
@@ -253,7 +266,6 @@ func downloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 				fmt.Println("error reading bitfieldPayload", err)
 				return
 			}
-			fmt.Println("payload", payload)
 			interested := []byte{0, 0, 0, 1, 2}
 			_, err = tcpConn.Write(interested)
 			if err != nil {
@@ -266,11 +278,9 @@ func downloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 			for i := 0; i < totalBlocks; i++ {
 				blockSize := 16 * 1024
 				if i == totalBlocks-1 {
-					lastBlockSize := metadata.Info.Piece_length % (16 * 1024)
-					if lastBlockSize > 0 {
-						blockSize = lastBlockSize
-					}
+					blockSize = pieceLength % (16 * 1024)
 				}
+
 				request := make([]byte, 17)
 				binary.BigEndian.PutUint32(request[0:4], 13)                  // Message length (13 bytes)
 				request[4] = 6                                                // Message ID (request)
@@ -299,10 +309,7 @@ func downloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 
 			blockSize := 16 * 1024
 			if pieceReceivedIndex == totalBlocks-1 {
-				blockSize = metadata.Info.Piece_length % (16 * 1024)
-				if blockSize == 0 {
-					blockSize = 16 * 1024
-				}
+				blockSize = pieceLength % (16 * 1024)
 			}
 
 			dataBuff := make([]byte, blockSize)
@@ -333,7 +340,6 @@ func downloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 					fmt.Println("Piece hash verification failed")
 					return
 				}
-
 			}
 		}
 	}
