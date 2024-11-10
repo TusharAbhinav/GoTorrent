@@ -208,11 +208,11 @@ func connectTCP(bencodedValue string, peerAddr string) *net.TCPConn {
 	fmt.Println("Peer ID:", peerID)
 	return tcpConn
 }
-func downloadPiece(bencodedValue string, downloadPath string, pieceIndex string) {
+func downloadPiece(bencodedValue string, downloadPath string, pieceIndex string) []byte {
 	metadata, err := loadTorrentFile(bencodedValue)
 	if err != nil {
 		fmt.Println(err)
-		return
+		return nil
 	}
 	peers := peersCommand(bencodedValue)
 	tcpConn := connectTCP(bencodedValue, peers[2])
@@ -243,7 +243,7 @@ func downloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 		_, err := io.ReadFull(tcpConn, messageLength)
 		if err != nil {
 			fmt.Println("error reading messageLength", err)
-			return
+			return nil
 		}
 		length := binary.BigEndian.Uint32(messageLength)
 		if length == 0 {
@@ -254,7 +254,7 @@ func downloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 		_, err = io.ReadFull(tcpConn, messageID)
 		if err != nil {
 			fmt.Println("error reading messageID", err)
-			return
+			return nil
 		}
 		id := uint8(messageID[0])
 		switch id {
@@ -264,13 +264,13 @@ func downloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 			_, err := io.ReadFull(tcpConn, payload)
 			if err != nil {
 				fmt.Println("error reading bitfieldPayload", err)
-				return
+				return nil
 			}
 			interested := []byte{0, 0, 0, 1, 2}
 			_, err = tcpConn.Write(interested)
 			if err != nil {
 				fmt.Println("Error sending interested message:", err)
-				return
+				return nil
 			}
 
 		case 1:
@@ -291,7 +291,7 @@ func downloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 				_, err = tcpConn.Write(request)
 				if err != nil {
 					fmt.Printf("Error sending request for block %d: %v\n", i+1, err)
-					return
+					return nil
 				}
 			}
 		case 7:
@@ -299,12 +299,12 @@ func downloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 			_, err := io.ReadFull(tcpConn, header)
 			if err != nil {
 				fmt.Println("Error reading piece header:", err)
-				return
+				return nil
 			}
 			index := binary.BigEndian.Uint32(header[0:4])
 			if int(index) != pieceInd {
 				fmt.Printf("Wrong piece index received. Expected %d, got %d\n", pieceInd, index)
-				return
+				return nil
 			}
 
 			blockSize := 16 * 1024
@@ -316,7 +316,7 @@ func downloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 			_, err = io.ReadFull(tcpConn, dataBuff)
 			if err != nil {
 				fmt.Printf("Error reading piece data (block %d): %v\n", pieceReceivedIndex, err)
-				return
+				return nil
 			}
 
 			pieceData = append(pieceData, dataBuff...)
@@ -329,20 +329,42 @@ func downloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 
 				if bytes.Equal(receivedPieceHash[:], []byte(expectedHash)) {
 					fmt.Println("Piece hash verified successfully")
-					err := savePieceToFile(pieceData, downloadPath)
-					if err != nil {
-						fmt.Println("Error saving piece to file:", err)
-						return
+					if downloadPath != "" {
+						err := savePieceToFile(pieceData, downloadPath)
+						if err != nil {
+							fmt.Println("Error saving piece to file:", err)
+							return nil
+						}
+						fmt.Println("Piece saved successfully")
 					}
-					fmt.Println("Piece saved successfully")
-					return
+					return pieceData
 				} else {
 					fmt.Println("Piece hash verification failed")
-					return
+					return nil
 				}
 			}
 		}
 	}
+}
+func downloadFile(bencodedValue string, downloadPath string) {
+	metadata, err := loadTorrentFile(bencodedValue)
+	if err != nil {
+		fmt.Println("error opening file", bencodedValue)
+		return
+	}
+	totalPieces := len(metadata.Info.Pieces) / 20
+	file := make([]byte, 0)
+	for i := 0; i < totalPieces; i++ {
+		pieceData := downloadPiece(bencodedValue, "", strconv.Itoa(i))
+		file = append(file, pieceData...)
+	}
+	err = savePieceToFile(file, downloadPath)
+	if err != nil {
+		fmt.Println("error saving to ", downloadPath)
+		return
+	}
+	fmt.Println("File Saved successfully")
+
 }
 func main() {
 	fmt.Fprintln(os.Stderr, "Logs from your program will appear here!")
@@ -365,6 +387,8 @@ func main() {
 		connectTCP(bencodedValue, os.Args[3])
 	case "download_piece":
 		downloadPiece(os.Args[4], os.Args[3], os.Args[5])
+	case "download":
+		downloadFile(os.Args[4], os.Args[3])
 	default:
 		fmt.Println("Unknown command:", command)
 	}
