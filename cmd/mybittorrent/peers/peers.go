@@ -23,7 +23,7 @@ func FetchPeersFromTracker(trackerURL string, infoHash [20]byte, metadata *torre
 	if metadata != nil {
 		params.Add("left", strconv.Itoa(metadata.Info.Length))
 	} else {
-		params.Add("left", strconv.Itoa(1))
+		params.Add("left", strconv.Itoa(999))
 
 	}
 	params.Add("compact", "1")
