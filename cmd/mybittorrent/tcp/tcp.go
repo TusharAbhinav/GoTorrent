@@ -1,6 +1,7 @@
 package tcp
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -10,12 +11,18 @@ import (
 	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/torrent"
 )
 
-func completeHandshake(tcpConn *net.TCPConn, infoHash [20]byte) string {
+func CompleteHandshake(tcpConn *net.TCPConn, infoHash [20]byte) string {
 	tcpRequest := torrent.TCPRequest{Length: 19, Protocol: [19]byte{}, Reserve: [8]byte{0}, InfoHash: infoHash, PeerID: [20]byte{}}
 	var tcpBuf []byte
 	tcpBuf = append(tcpBuf, byte(tcpRequest.Length))
 	copy(tcpRequest.Protocol[:], "BitTorrent protocol")
 	tcpBuf = append(tcpBuf, tcpRequest.Protocol[:19]...)
+	// Set the 20th bit to 1 in the Reserve field to indicate magnet extension support
+	reserve := binary.BigEndian.Uint64(tcpRequest.Reserve[:])
+	mask := uint64(1) << 20 
+	reserve |= uint64(mask)
+	binary.BigEndian.PutUint64(tcpRequest.Reserve[:], reserve)
+
 	tcpBuf = append(tcpBuf, tcpRequest.Reserve[:8]...)
 	tcpBuf = append(tcpBuf, tcpRequest.InfoHash[:20]...)
 	copy(tcpRequest.PeerID[:], "tgtwvrxkbjmspmivqnsj")
@@ -61,7 +68,7 @@ func ConnectTCP(bencodedValue string, peerAddr string) *net.TCPConn {
 		fmt.Println(err)
 		return nil
 	}
-	peerID := completeHandshake(tcpConn, infoHash)
+	peerID := CompleteHandshake(tcpConn, infoHash)
 
 	fmt.Println("Peer ID:", peerID)
 	return tcpConn

@@ -12,7 +12,7 @@ import (
 	"github.com/jackpal/bencode-go"
 )
 
-func fetchPeersFromTracker(trackerURL string, infoHash [20]byte, metadata *torrent.Torrent) ([]string, error) {
+func FetchPeersFromTracker(trackerURL string, infoHash [20]byte, metadata *torrent.Torrent) ([]string, error) {
 	baseURL, _ := url.Parse(trackerURL)
 	params := url.Values{}
 	params.Add("info_hash", string(infoHash[:]))
@@ -20,7 +20,12 @@ func fetchPeersFromTracker(trackerURL string, infoHash [20]byte, metadata *torre
 	params.Add("port", strconv.Itoa(6881))
 	params.Add("uploaded", "48")
 	params.Add("downloaded", "48")
-	params.Add("left", strconv.Itoa(metadata.Info.Length))
+	if metadata != nil {
+		params.Add("left", strconv.Itoa(metadata.Info.Length))
+	} else {
+		params.Add("left", strconv.Itoa(1))
+
+	}
 	params.Add("compact", "1")
 	baseURL.RawQuery = params.Encode()
 
@@ -57,7 +62,7 @@ func PeersCommand(bencodedValue string) []string {
 		return []string{}
 	}
 
-	peers, err := fetchPeersFromTracker(metadata.Announce, infoHash, metadata)
+	peers, err := FetchPeersFromTracker(metadata.Announce, infoHash, metadata)
 	if err != nil {
 		fmt.Println(err)
 		return []string{}

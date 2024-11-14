@@ -41,6 +41,8 @@ func main() {
 		download.DownloadFile(os.Args[4], os.Args[3])
 	case "magnet_parse":
 		magnet.ParseMagnetLinks(os.Args[2])
+	case "magnet_handshake":
+		magnet.MagnetHandshake(os.Args[2])
 	default:
 		fmt.Println("Unknown command:", command)
 	}
