@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+
 	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/decode"
 	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/download"
+	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/extensions/magnet"
 	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/info"
 	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/peers"
 	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/tcp"
@@ -37,6 +39,8 @@ func main() {
 		download.DownloadPiece(os.Args[4], os.Args[3], os.Args[5])
 	case "download":
 		download.DownloadFile(os.Args[4], os.Args[3])
+	case "magnet_parse":
+		magnet.ParseMagnetLinks(os.Args[2])
 	default:
 		fmt.Println("Unknown command:", command)
 	}
