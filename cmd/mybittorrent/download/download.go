@@ -1,3 +1,4 @@
+//Add concurrency later
 package download
 
 import (
@@ -11,7 +12,13 @@ import (
 
 	infoCommand "github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/info"
 	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/peers"
+	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/queue"
 	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/tcp"
+)
+
+var (
+	isFailed   map[int]int
+	maxRetries = 3
 )
 
 func savePieceToFile(pieceData []byte, downloadPath string) error {
@@ -28,7 +35,13 @@ func savePieceToFile(pieceData []byte, downloadPath string) error {
 
 	return nil
 }
-
+func retry(pieceInd int) {
+	if isFailed[pieceInd] <= maxRetries {
+		fmt.Println("Retrying ... piece ", pieceInd)
+		queue.Push(pieceInd)
+		isFailed[pieceInd]++
+	}
+}
 func DownloadPiece(bencodedValue string, downloadPath string, pieceIndex string) []byte {
 	metadata, err := infoCommand.LoadTorrentFile(bencodedValue)
 	if err != nil {
@@ -36,9 +49,9 @@ func DownloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 		return nil
 	}
 	peers := peers.PeersCommand(bencodedValue)
-	tcpConn := tcp.ConnectTCP(bencodedValue, peers[2])
 	pieceData := make([]byte, 0)
 	pieceInd, _ := strconv.Atoi(pieceIndex)
+	tcpConn := tcp.ConnectTCP(bencodedValue, peers[pieceInd%len(peers)])
 
 	pieceLength := metadata.Info.Piece_length
 	//total number of pieces
@@ -64,6 +77,7 @@ func DownloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 		_, err := io.ReadFull(tcpConn, messageLength)
 		if err != nil {
 			fmt.Println("error reading messageLength", err)
+			retry(pieceInd)
 			return nil
 		}
 		length := binary.BigEndian.Uint32(messageLength)
@@ -75,6 +89,7 @@ func DownloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 		_, err = io.ReadFull(tcpConn, messageID)
 		if err != nil {
 			fmt.Println("error reading messageID", err)
+			retry(pieceInd)
 			return nil
 		}
 		id := uint8(messageID[0])
@@ -85,12 +100,14 @@ func DownloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 			_, err := io.ReadFull(tcpConn, payload)
 			if err != nil {
 				fmt.Println("error reading bitfieldPayload", err)
+				retry(pieceInd)
 				return nil
 			}
 			interested := []byte{0, 0, 0, 1, 2}
 			_, err = tcpConn.Write(interested)
 			if err != nil {
 				fmt.Println("Error sending interested message:", err)
+				retry(pieceInd)
 				return nil
 			}
 
@@ -112,6 +129,7 @@ func DownloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 				_, err = tcpConn.Write(request)
 				if err != nil {
 					fmt.Printf("Error sending request for block %d: %v\n", i+1, err)
+					retry(pieceInd)
 					return nil
 				}
 			}
@@ -120,11 +138,13 @@ func DownloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 			_, err := io.ReadFull(tcpConn, header)
 			if err != nil {
 				fmt.Println("Error reading piece header:", err)
+				retry(pieceInd)
 				return nil
 			}
 			index := binary.BigEndian.Uint32(header[0:4])
 			if int(index) != pieceInd {
 				fmt.Printf("Wrong piece index received. Expected %d, got %d\n", pieceInd, index)
+				retry(pieceInd)
 				return nil
 			}
 
@@ -137,6 +157,7 @@ func DownloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 			_, err = io.ReadFull(tcpConn, dataBuff)
 			if err != nil {
 				fmt.Printf("Error reading piece data (block %d): %v\n", pieceReceivedIndex, err)
+				retry(pieceInd)
 				return nil
 			}
 
@@ -167,6 +188,11 @@ func DownloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 		}
 	}
 }
+func addPiecesToQueue(totalPieces int) {
+	for i := 0; i < totalPieces; i++ {
+		queue.Push(i)
+	}
+}
 func DownloadFile(bencodedValue string, downloadPath string) {
 	metadata, err := infoCommand.LoadTorrentFile(bencodedValue)
 	if err != nil {
@@ -175,9 +201,13 @@ func DownloadFile(bencodedValue string, downloadPath string) {
 	}
 	totalPieces := len(metadata.Info.Pieces) / 20
 	file := make([]byte, 0)
-	for i := 0; i < totalPieces; i++ {
-		pieceData := DownloadPiece(bencodedValue, "", strconv.Itoa(i))
+	addPiecesToQueue(totalPieces)
+	for !queue.Empty() {
+		pieceIndex := queue.Front()
+		queue.Pop()
+		pieceData := DownloadPiece(bencodedValue, "", strconv.Itoa(pieceIndex))
 		file = append(file, pieceData...)
+
 	}
 	err = savePieceToFile(file, downloadPath)
 	if err != nil {
