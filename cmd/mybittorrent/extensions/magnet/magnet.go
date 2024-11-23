@@ -5,14 +5,18 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/peers"
+	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/tcp"
+	"github.com/jackpal/bencode-go"
 	"io"
 	"net"
 	"net/url"
 	"regexp"
-	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/peers"
-	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/tcp"
-	"github.com/jackpal/bencode-go"
 )
+
+type extensionMsg struct {
+	M map[string]interface{} `bencode:"m"`
+}
 
 func ParseMagnetLinks(magnetLink string) (string, string) {
 	infoHashPattern := `xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})`
@@ -68,21 +72,28 @@ func MagnetHandshake(magnetLink string) {
 }
 
 func sendExtensionHandshake(tcpConn *net.TCPConn) {
+
+	// In the BitTorrent protocol, peers send their extension handshake after the base handshake:
+	// 1. Both peers set reserved bits to indicate extension protocol support
+	// 2. Both peers send their own extension handshake independently
+	// 3. There's no need to wait and receive the other peer's base handshake before sending your extension handshake
+	// 4. The extension handshake is sent immediately after the base handshake, signaling support for extension protocol
+
 	// fmt.Println("Attempting to read recieved handshake...")
 	// recievedHandShakeBuff := make([]byte, 68)
-    // _, err := io.ReadFull(tcpConn, recievedHandShakeBuff)
-    // if err != nil {
-    //     fmt.Println("Error receiving handshake:", err)
-    //     return
-    // }
-    // fmt.Println("1")
-    // reservedBytes := recievedHandShakeBuff[20:28]
-    // reserve := binary.BigEndian.Uint64(reservedBytes[:])
-    // mask := uint64(1) << 20
-    // if reserve&mask == 0 {
-    //     fmt.Println("Peer does not support extension protocol")
-    //     return
-    // }
+	// _, err := io.ReadFull(tcpConn, recievedHandShakeBuff)
+	// if err != nil {
+	//     fmt.Println("Error receiving handshake:", err)
+	//     return
+	// }
+	// fmt.Println("1")
+	// reservedBytes := recievedHandShakeBuff[20:28]
+	// reserve := binary.BigEndian.Uint64(reservedBytes[:])
+	// mask := uint64(1) << 20
+	// if reserve&mask == 0 {
+	//     fmt.Println("Peer does not support extension protocol")
+	//     return
+	// }
 	for {
 		messageLength := make([]byte, 4)
 		_, err := io.ReadFull(tcpConn, messageLength)
@@ -104,6 +115,7 @@ func sendExtensionHandshake(tcpConn *net.TCPConn) {
 		}
 
 		id := uint8(messageID[0])
+		extensionRecieved := 0
 		switch id {
 		case 5:
 			fmt.Println("Received bitfield message")
@@ -136,7 +148,27 @@ func sendExtensionHandshake(tcpConn *net.TCPConn) {
 			if err != nil {
 				fmt.Println("Error sending extension handshake:", err)
 			}
+		case 20:
+			payload := make([]byte, length-1)
+			_, err = io.ReadFull(tcpConn, payload)
+			if err != nil {
+				fmt.Println("Error reading extension message payload:", err)
+				return
+			}
+			dict := payload[1:]
+			buf := bytes.NewReader(dict)
+			extensionMsg := extensionMsg{}
+			err := bencode.Unmarshal(buf, &extensionMsg)
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
+			fmt.Println("Peer Metadata Extension ID:", extensionMsg.M["ut_metadata"])
+			extensionRecieved = 1
 		}
-		break
+		if extensionRecieved == 1 {
+			break
+		}
+
 	}
 }
