@@ -17,6 +17,10 @@ import (
 type extensionMsg struct {
 	M map[string]interface{} `bencode:"m"`
 }
+type requestMsgPayload struct {
+	Msg_type int `bencode:"msg_type"`
+	Piece    int `bencode:"piece"`
+}
 
 func ParseMagnetLinks(magnetLink string) (string, string) {
 	infoHashPattern := `xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})`
@@ -115,7 +119,7 @@ func sendExtensionHandshake(tcpConn *net.TCPConn) {
 		}
 
 		id := uint8(messageID[0])
-		extensionRecieved := 0
+		requestMsgSent := 0
 		switch id {
 		case 5:
 			fmt.Println("Received bitfield message")
@@ -164,9 +168,30 @@ func sendExtensionHandshake(tcpConn *net.TCPConn) {
 				return
 			}
 			fmt.Println("Peer Metadata Extension ID:", extensionMsg.M["ut_metadata"])
-			extensionRecieved = 1
+			requestMsgPayload := requestMsgPayload{
+				Msg_type: 0,
+				Piece:    0,
+			}
+			peerMetaDataExtensionID := extensionMsg.M["ut_metadata"].(int)
+			var requestMsgPayloadBuf bytes.Buffer
+			err = bencode.Marshal(&requestMsgPayloadBuf, requestMsgPayload)
+			if err != nil {
+				return
+			}
+			payloadLength := len(requestMsgPayloadBuf.Bytes()) + 2
+			requestMsg := make([]byte, 4+payloadLength)
+			binary.BigEndian.PutUint32(requestMsg[:4], uint32(payloadLength))
+			requestMsg[4] = 20
+			requestMsg[5] = uint8(peerMetaDataExtensionID)
+			copy(requestMsg[6:], requestMsgPayloadBuf.Bytes())
+			_, err = tcpConn.Write(requestMsg)
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
+			requestMsgSent = 1
 		}
-		if extensionRecieved == 1 {
+		if requestMsgSent == 1 {
 			break
 		}
 

@@ -43,6 +43,8 @@ func main() {
 		magnet.ParseMagnetLinks(os.Args[2])
 	case "magnet_handshake":
 		magnet.MagnetHandshake(os.Args[2])
+	case "magnet_info":
+		magnet.MagnetHandshake(os.Args[2])
 	default:
 		fmt.Println("Unknown command:", command)
 	}
