@@ -5,13 +5,18 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/peers"
-	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/tcp"
-	"github.com/jackpal/bencode-go"
 	"io"
 	"net"
 	"net/url"
+	"reflect"
 	"regexp"
+	"time"
+
+	infoCommand "github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/info"
+	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/peers"
+	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/tcp"
+	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/torrent"
+	"github.com/jackpal/bencode-go"
 )
 
 type extensionMsg struct {
@@ -70,34 +75,17 @@ func MagnetHandshake(magnetLink string) {
 		return
 	}
 	defer tcpConn.Close()
+	t := time.Now().Add(7 * time.Second)
+	tcpConn.SetDeadline(t)
 	peerID := tcp.CompleteHandshake(tcpConn, infoHashArray)
 	fmt.Println("Peer ID:", peerID)
-	sendExtensionHandshake(tcpConn)
+	sendExtensionHandshake(tcpConn, infoHash)
 }
 
-func sendExtensionHandshake(tcpConn *net.TCPConn) {
+func sendExtensionHandshake(tcpConn *net.TCPConn, infoHash string) {
+	var peerMetaDataExtensionID int
+	requestMsgSent := false
 
-	// In the BitTorrent protocol, peers send their extension handshake after the base handshake:
-	// 1. Both peers set reserved bits to indicate extension protocol support
-	// 2. Both peers send their own extension handshake independently
-	// 3. There's no need to wait and receive the other peer's base handshake before sending your extension handshake
-	// 4. The extension handshake is sent immediately after the base handshake, signaling support for extension protocol
-
-	// fmt.Println("Attempting to read recieved handshake...")
-	// recievedHandShakeBuff := make([]byte, 68)
-	// _, err := io.ReadFull(tcpConn, recievedHandShakeBuff)
-	// if err != nil {
-	//     fmt.Println("Error receiving handshake:", err)
-	//     return
-	// }
-	// fmt.Println("1")
-	// reservedBytes := recievedHandShakeBuff[20:28]
-	// reserve := binary.BigEndian.Uint64(reservedBytes[:])
-	// mask := uint64(1) << 20
-	// if reserve&mask == 0 {
-	//     fmt.Println("Peer does not support extension protocol")
-	//     return
-	// }
 	for {
 		messageLength := make([]byte, 4)
 		_, err := io.ReadFull(tcpConn, messageLength)
@@ -108,7 +96,7 @@ func sendExtensionHandshake(tcpConn *net.TCPConn) {
 		length := binary.BigEndian.Uint32(messageLength)
 		if length == 0 {
 			fmt.Println("Keep alive message received")
-			continue
+			return
 		}
 
 		messageID := make([]byte, 1)
@@ -119,7 +107,6 @@ func sendExtensionHandshake(tcpConn *net.TCPConn) {
 		}
 
 		id := uint8(messageID[0])
-		requestMsgSent := 0
 		switch id {
 		case 5:
 			fmt.Println("Received bitfield message")
@@ -152,6 +139,7 @@ func sendExtensionHandshake(tcpConn *net.TCPConn) {
 			if err != nil {
 				fmt.Println("Error sending extension handshake:", err)
 			}
+
 		case 20:
 			payload := make([]byte, length-1)
 			_, err = io.ReadFull(tcpConn, payload)
@@ -159,41 +147,93 @@ func sendExtensionHandshake(tcpConn *net.TCPConn) {
 				fmt.Println("Error reading extension message payload:", err)
 				return
 			}
+
+			extensionMsgID := payload[0]
 			dict := payload[1:]
 			buf := bytes.NewReader(dict)
-			extensionMsg := extensionMsg{}
-			err := bencode.Unmarshal(buf, &extensionMsg)
-			if err != nil {
-				fmt.Println(err)
-				return
-			}
-			fmt.Println("Peer Metadata Extension ID:", extensionMsg.M["ut_metadata"])
-			requestMsgPayload := requestMsgPayload{
-				Msg_type: 0,
-				Piece:    0,
-			}
-			peerMetaDataExtensionID := extensionMsg.M["ut_metadata"].(int)
-			var requestMsgPayloadBuf bytes.Buffer
-			err = bencode.Marshal(&requestMsgPayloadBuf, requestMsgPayload)
-			if err != nil {
-				return
-			}
-			payloadLength := len(requestMsgPayloadBuf.Bytes()) + 2
-			requestMsg := make([]byte, 4+payloadLength)
-			binary.BigEndian.PutUint32(requestMsg[:4], uint32(payloadLength))
-			requestMsg[4] = 20
-			requestMsg[5] = uint8(peerMetaDataExtensionID)
-			copy(requestMsg[6:], requestMsgPayloadBuf.Bytes())
-			_, err = tcpConn.Write(requestMsg)
-			if err != nil {
-				fmt.Println(err)
-				return
-			}
-			requestMsgSent = 1
-		}
-		if requestMsgSent == 1 {
-			break
-		}
 
+			if extensionMsgID == 0 {
+				extensionMsg := extensionMsg{}
+				err := bencode.Unmarshal(buf, &extensionMsg)
+				if err != nil {
+					fmt.Println("Error unmarshaling extension message:", err)
+					return
+				}
+
+				if metadataExtID, ok := extensionMsg.M["ut_metadata"].(int); ok {
+					peerMetaDataExtensionID = metadataExtID
+					fmt.Println("Peer Metadata Extension ID:", peerMetaDataExtensionID)
+
+					requestMsgPayload := requestMsgPayload{
+						Msg_type: 0,
+						Piece:    0,
+					}
+					var requestMsgPayloadBuf bytes.Buffer
+					err = bencode.Marshal(&requestMsgPayloadBuf, requestMsgPayload)
+					if err != nil {
+						fmt.Println("Error marshaling request payload:", err)
+						return
+					}
+
+					payloadLength := len(requestMsgPayloadBuf.Bytes()) + 2
+					requestMsg := make([]byte, 4+payloadLength)
+					binary.BigEndian.PutUint32(requestMsg[:4], uint32(payloadLength))
+					requestMsg[4] = 20
+					requestMsg[5] = uint8(peerMetaDataExtensionID)
+					copy(requestMsg[6:], requestMsgPayloadBuf.Bytes())
+					fmt.Println("Sending request message...")
+					_, err = tcpConn.Write(requestMsg)
+					if err != nil {
+						fmt.Println("Error sending request message:", err)
+						return
+					}
+					requestMsgSent = true
+				} else {
+					fmt.Println("Could not extract metadata extension ID")
+					return
+				}
+			} else if requestMsgSent {
+				data, err := bencode.Decode(buf)
+				if err != nil {
+					fmt.Println("Error unmarshaling data message:", err)
+					return
+				}
+
+				if reflect.TypeOf(data).Kind() == reflect.Map {
+					if metadataMap, ok := data.(map[string]interface{}); ok {
+						var metadataMapBuf bytes.Buffer
+						err = bencode.Marshal(&metadataMapBuf, metadataMap)
+						if err != nil {
+							fmt.Println("Error encoding metadata map:", err)
+							return
+						}
+
+						mapBytesLength := metadataMapBuf.Len()
+						metadataPieceContentsBuf := bytes.NewReader(dict[mapBytesLength:])
+
+						var metadataPieceContents torrent.InfoData
+						err = bencode.Unmarshal(metadataPieceContentsBuf, &metadataPieceContents)
+						if err != nil {
+							fmt.Println("Error unmarshaling metadata piece contents:", err)
+							fmt.Printf("Problematic bytes: %x\n", dict[1+mapBytesLength:])
+							return
+						}
+
+						hash, err := infoCommand.GenerateInfoHash(metadataPieceContents)
+						if err != nil {
+							fmt.Println(err)
+							return
+						}
+						if infoHash == hex.EncodeToString(hash[:]) {
+
+							fmt.Println("Length:", metadataPieceContents.Length)
+							fmt.Println("Info Hash:", hex.EncodeToString(hash[:]))
+							fmt.Println("Piece Length:", metadataPieceContents.Piece_length)
+							fmt.Println("Piece Hashes:", hex.EncodeToString([]byte(metadataPieceContents.Pieces)))
+						}
+					}
+				}
+			}
+		}
 	}
 }
