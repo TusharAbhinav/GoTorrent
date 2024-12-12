@@ -45,6 +45,9 @@ func main() {
 		magnet.MagnetHandshake(os.Args[2])
 	case "magnet_info":
 		magnet.MagnetHandshake(os.Args[2])
+	case "magnet_download_piece":
+		tcpConn,metadataPieceContents:=magnet.MagnetHandshake(os.Args[4])
+		magnet.DownloadPiece(metadataPieceContents,os.Args[5],os.Args[3],tcpConn)
 	default:
 		fmt.Println("Unknown command:", command)
 	}

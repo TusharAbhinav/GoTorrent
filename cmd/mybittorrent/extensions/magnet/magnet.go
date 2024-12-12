@@ -10,8 +10,10 @@ import (
 	"net/url"
 	"reflect"
 	"regexp"
+	"strconv"
 	"time"
 
+	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/download"
 	infoCommand "github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/info"
 	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/peers"
 	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/tcp"
@@ -52,7 +54,7 @@ func ParseMagnetLinks(magnetLink string) (string, string) {
 	return trackerURL, infoHash[1]
 }
 
-func MagnetHandshake(magnetLink string) {
+func MagnetHandshake(magnetLink string) (*net.TCPConn, *torrent.InfoData) {
 	trackerURL, infoHash := ParseMagnetLinks(magnetLink)
 	byteInfoHash, _ := hex.DecodeString(infoHash)
 	var infoHashArray [20]byte
@@ -61,28 +63,29 @@ func MagnetHandshake(magnetLink string) {
 	peerList, err := peers.FetchPeersFromTracker(trackerURL, infoHashArray, nil)
 	if err != nil || len(peerList) == 0 {
 		fmt.Println("Error fetching peers or no peers available:", err)
-		return
+		return nil, nil
 	}
+	fmt.Println(peerList)
 	peerTCPAddr, err := net.ResolveTCPAddr("tcp", peerList[0])
 	if err != nil {
 		fmt.Println("Error resolving TCP address:", err)
-		return
+		return nil, nil
 	}
 
 	tcpConn, err := net.DialTCP("tcp", nil, peerTCPAddr)
 	if err != nil {
 		fmt.Println("Error establishing TCP connection:", err)
-		return
+		return nil, nil
 	}
-	defer tcpConn.Close()
 	t := time.Now().Add(7 * time.Second)
 	tcpConn.SetDeadline(t)
 	peerID := tcp.CompleteHandshake(tcpConn, infoHashArray)
 	fmt.Println("Peer ID:", peerID)
-	sendExtensionHandshake(tcpConn, infoHash)
+	metadataPieceContents := sendExtensionHandshake(tcpConn, infoHash)
+	return tcpConn, metadataPieceContents
 }
 
-func sendExtensionHandshake(tcpConn *net.TCPConn, infoHash string) {
+func sendExtensionHandshake(tcpConn *net.TCPConn, infoHash string) *torrent.InfoData {
 	var peerMetaDataExtensionID int
 	requestMsgSent := false
 
@@ -91,19 +94,19 @@ func sendExtensionHandshake(tcpConn *net.TCPConn, infoHash string) {
 		_, err := io.ReadFull(tcpConn, messageLength)
 		if err != nil {
 			fmt.Println("Error reading message length:", err)
-			return
+			return nil
 		}
 		length := binary.BigEndian.Uint32(messageLength)
 		if length == 0 {
 			fmt.Println("Keep alive message received")
-			return
+			return nil
 		}
 
 		messageID := make([]byte, 1)
 		_, err = io.ReadFull(tcpConn, messageID)
 		if err != nil {
 			fmt.Println("Error reading message ID:", err)
-			return
+			return nil
 		}
 
 		id := uint8(messageID[0])
@@ -114,7 +117,7 @@ func sendExtensionHandshake(tcpConn *net.TCPConn, infoHash string) {
 			_, err := io.ReadFull(tcpConn, payload)
 			if err != nil {
 				fmt.Println("Error reading bitfield payload:", err)
-				return
+				return nil
 			}
 
 			bencodedDict := map[string]interface{}{
@@ -124,7 +127,7 @@ func sendExtensionHandshake(tcpConn *net.TCPConn, infoHash string) {
 			err = bencode.Marshal(&bencodedDictBytesBuffer, bencodedDict)
 			if err != nil {
 				fmt.Println("Error encoding bencoded dictionary:", err)
-				return
+				return nil
 			}
 
 			extensionPayload := bencodedDictBytesBuffer.Bytes()
@@ -145,7 +148,7 @@ func sendExtensionHandshake(tcpConn *net.TCPConn, infoHash string) {
 			_, err = io.ReadFull(tcpConn, payload)
 			if err != nil {
 				fmt.Println("Error reading extension message payload:", err)
-				return
+				return nil
 			}
 
 			extensionMsgID := payload[0]
@@ -157,7 +160,7 @@ func sendExtensionHandshake(tcpConn *net.TCPConn, infoHash string) {
 				err := bencode.Unmarshal(buf, &extensionMsg)
 				if err != nil {
 					fmt.Println("Error unmarshaling extension message:", err)
-					return
+					return nil
 				}
 
 				if metadataExtID, ok := extensionMsg.M["ut_metadata"].(int); ok {
@@ -172,7 +175,7 @@ func sendExtensionHandshake(tcpConn *net.TCPConn, infoHash string) {
 					err = bencode.Marshal(&requestMsgPayloadBuf, requestMsgPayload)
 					if err != nil {
 						fmt.Println("Error marshaling request payload:", err)
-						return
+						return nil
 					}
 
 					payloadLength := len(requestMsgPayloadBuf.Bytes()) + 2
@@ -185,18 +188,18 @@ func sendExtensionHandshake(tcpConn *net.TCPConn, infoHash string) {
 					_, err = tcpConn.Write(requestMsg)
 					if err != nil {
 						fmt.Println("Error sending request message:", err)
-						return
+						return nil
 					}
 					requestMsgSent = true
 				} else {
 					fmt.Println("Could not extract metadata extension ID")
-					return
+					return nil
 				}
 			} else if requestMsgSent {
 				data, err := bencode.Decode(buf)
 				if err != nil {
 					fmt.Println("Error unmarshaling data message:", err)
-					return
+					return nil
 				}
 
 				if reflect.TypeOf(data).Kind() == reflect.Map {
@@ -205,7 +208,7 @@ func sendExtensionHandshake(tcpConn *net.TCPConn, infoHash string) {
 						err = bencode.Marshal(&metadataMapBuf, metadataMap)
 						if err != nil {
 							fmt.Println("Error encoding metadata map:", err)
-							return
+							return nil
 						}
 
 						mapBytesLength := metadataMapBuf.Len()
@@ -215,14 +218,13 @@ func sendExtensionHandshake(tcpConn *net.TCPConn, infoHash string) {
 						err = bencode.Unmarshal(metadataPieceContentsBuf, &metadataPieceContents)
 						if err != nil {
 							fmt.Println("Error unmarshaling metadata piece contents:", err)
-							fmt.Printf("Problematic bytes: %x\n", dict[1+mapBytesLength:])
-							return
+							return nil
 						}
 
 						hash, err := infoCommand.GenerateInfoHash(metadataPieceContents)
 						if err != nil {
 							fmt.Println(err)
-							return
+							return nil
 						}
 						if infoHash == hex.EncodeToString(hash[:]) {
 
@@ -230,10 +232,36 @@ func sendExtensionHandshake(tcpConn *net.TCPConn, infoHash string) {
 							fmt.Println("Info Hash:", hex.EncodeToString(hash[:]))
 							fmt.Println("Piece Length:", metadataPieceContents.Piece_length)
 							fmt.Println("Piece Hashes:", hex.EncodeToString([]byte(metadataPieceContents.Pieces)))
+							return &metadataPieceContents
 						}
 					}
 				}
 			}
 		}
 	}
+}
+func DownloadPiece(metadataPieceContents *torrent.InfoData, pieceIndex string, downloadPath string, tcpConn *net.TCPConn) []byte {
+	pieceData := make([]byte, 0)
+	pieceInd, _ := strconv.Atoi(pieceIndex)
+	pieceLength := metadataPieceContents.Piece_length
+
+	if pieceInd == len(metadataPieceContents.Pieces)/20-1 {
+		lastPieceLength := metadataPieceContents.Length % metadataPieceContents.Piece_length
+		if lastPieceLength > 0 {
+			pieceLength = lastPieceLength
+		}
+	}
+	defer tcpConn.Close()
+	totalBlocks := (pieceLength)/(16*1024) + 1
+	fmt.Println("total blocks", totalBlocks)
+
+	pieceReceivedIndex := 0
+	interested := []byte{0, 0, 0, 1, 2}
+	_, err := tcpConn.Write(interested)
+	if err != nil {
+		fmt.Println("Error sending interested message:", err)
+		return nil
+	}
+	return download.HandleDownloadPiece(tcpConn, pieceInd, totalBlocks, pieceLength, pieceReceivedIndex, pieceData, downloadPath, metadataPieceContents)
+
 }

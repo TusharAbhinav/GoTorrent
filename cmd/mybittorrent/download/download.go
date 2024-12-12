@@ -1,4 +1,4 @@
-//Add concurrency later
+// Add concurrency later
 package download
 
 import (
@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"strconv"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/peers"
 	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/queue"
 	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/tcp"
+	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/torrent"
 )
 
 var (
@@ -42,36 +44,8 @@ func retry(pieceInd int) {
 		isFailed[pieceInd]++
 	}
 }
-func DownloadPiece(bencodedValue string, downloadPath string, pieceIndex string) []byte {
-	metadata, err := infoCommand.LoadTorrentFile(bencodedValue)
-	if err != nil {
-		fmt.Println(err)
-		return nil
-	}
-	peers := peers.PeersCommand(bencodedValue)
-	pieceData := make([]byte, 0)
-	pieceInd, _ := strconv.Atoi(pieceIndex)
-	tcpConn := tcp.ConnectTCP(bencodedValue, peers[pieceInd%len(peers)])
-
-	pieceLength := metadata.Info.Piece_length
-	//total number of pieces
-	// eg: len(metadata.Info.Pieces)/20 // Number of pieces
-	// 60/20 = 3 pieces
-
-	// len(metadata.Info.Pieces)/20 - 1 // Index of last piece
-	// 3-1 = 2 (pieces are 0-indexed))
-	if pieceInd == len(metadata.Info.Pieces)/20-1 {
-		lastPieceLength := metadata.Info.Length % metadata.Info.Piece_length
-		if lastPieceLength > 0 {
-			pieceLength = lastPieceLength
-		}
-	}
-	totalBlocks := (pieceLength)/(16*1024) + 1
-	fmt.Println("total blocks", totalBlocks)
-
-	pieceReceivedIndex := 0
-	defer tcpConn.Close()
-
+func HandleDownloadPiece(tcpConn *net.TCPConn, pieceInd int, totalBlocks int, pieceLength int, pieceReceivedIndex int, pieceData []byte, downloadPath string, Info *torrent.InfoData) []byte {
+	 
 	for {
 		messageLength := make([]byte, 4)
 		_, err := io.ReadFull(tcpConn, messageLength)
@@ -167,7 +141,7 @@ func DownloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 
 			if pieceReceivedIndex == totalBlocks {
 				receivedPieceHash := sha1.Sum(pieceData)
-				expectedHash := metadata.Info.Pieces[pieceInd*20 : (pieceInd+1)*20]
+				expectedHash := Info.Pieces[pieceInd*20 : (pieceInd+1)*20]
 
 				if bytes.Equal(receivedPieceHash[:], []byte(expectedHash)) {
 					fmt.Println("Piece hash verified successfully")
@@ -187,6 +161,38 @@ func DownloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 			}
 		}
 	}
+}
+func DownloadPiece(bencodedValue string, downloadPath string, pieceIndex string) []byte {
+	metadata, err := infoCommand.LoadTorrentFile(bencodedValue)
+	if err != nil {
+		fmt.Println(err)
+		return nil
+	}
+	peers := peers.PeersCommand(bencodedValue)
+	pieceData := make([]byte, 0)
+	pieceInd, _ := strconv.Atoi(pieceIndex)
+	tcpConn := tcp.ConnectTCP(bencodedValue, peers[pieceInd%len(peers)])
+
+	pieceLength := metadata.Info.Piece_length
+	//total number of pieces
+	// eg: len(metadata.Info.Pieces)/20 // Number of pieces
+	// 60/20 = 3 pieces
+
+	// len(metadata.Info.Pieces)/20 - 1 // Index of last piece
+	// 3-1 = 2 (pieces are 0-indexed))
+	if pieceInd == len(metadata.Info.Pieces)/20-1 {
+		lastPieceLength := metadata.Info.Length % metadata.Info.Piece_length
+		if lastPieceLength > 0 {
+			pieceLength = lastPieceLength
+		}
+	}
+	totalBlocks := (pieceLength)/(16*1024) + 1
+	fmt.Println("total blocks", totalBlocks)
+
+	pieceReceivedIndex := 0
+	defer tcpConn.Close()
+	return HandleDownloadPiece(tcpConn, pieceInd, totalBlocks, pieceLength, pieceReceivedIndex, pieceData, downloadPath, &metadata.Info)
+
 }
 func addPiecesToQueue(totalPieces int) {
 	for i := 0; i < totalPieces; i++ {
