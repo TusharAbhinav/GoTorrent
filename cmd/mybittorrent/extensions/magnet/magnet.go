@@ -16,6 +16,7 @@ import (
 	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/download"
 	infoCommand "github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/info"
 	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/peers"
+	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/queue"
 	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/tcp"
 	"github.com/codecrafters-io/bittorrent-starter-go/cmd/mybittorrent/torrent"
 	"github.com/jackpal/bencode-go"
@@ -77,7 +78,7 @@ func MagnetHandshake(magnetLink string) (*net.TCPConn, *torrent.InfoData) {
 		fmt.Println("Error establishing TCP connection:", err)
 		return nil, nil
 	}
-	t := time.Now().Add(7 * time.Second)
+	t := time.Now().Add(9 * time.Second)
 	tcpConn.SetDeadline(t)
 	peerID := tcp.CompleteHandshake(tcpConn, infoHashArray)
 	fmt.Println("Peer ID:", peerID)
@@ -251,7 +252,6 @@ func DownloadPiece(metadataPieceContents *torrent.InfoData, pieceIndex string, d
 			pieceLength = lastPieceLength
 		}
 	}
-	defer tcpConn.Close()
 	totalBlocks := (pieceLength)/(16*1024) + 1
 	fmt.Println("total blocks", totalBlocks)
 
@@ -264,4 +264,29 @@ func DownloadPiece(metadataPieceContents *torrent.InfoData, pieceIndex string, d
 	}
 	return download.HandleDownloadPiece(tcpConn, pieceInd, totalBlocks, pieceLength, pieceReceivedIndex, pieceData, downloadPath, metadataPieceContents)
 
+}
+func DownloadFile(metadataPieceContents *torrent.InfoData, downloadPath string, tcpConn *net.TCPConn) {
+	totalPieces := len(metadataPieceContents.Pieces) / 20
+	file := make([]byte, 0)
+	fmt.Println("total pieces",totalPieces)
+	download.AddPiecesToQueue(totalPieces)
+	for !queue.Empty() {
+		pieceIndex := queue.Front()
+		queue.Pop()
+		fmt.Println(pieceIndex)
+		// interested := []byte{0, 0, 0, 1, 2}
+		//  tcpConn.Write(interested)
+		pieceData := DownloadPiece(metadataPieceContents, strconv.Itoa(pieceIndex), downloadPath, tcpConn)
+		file = append(file, pieceData...)
+
+	}
+	defer tcpConn.Close()
+	err := download.SavePieceToFile(file, downloadPath)
+	if err != nil {
+		defer tcpConn.Close()
+
+		fmt.Println("error saving to ", downloadPath)
+		return
+	}
+	fmt.Println("File Saved successfully")
 }

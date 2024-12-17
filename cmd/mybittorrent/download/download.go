@@ -23,7 +23,7 @@ var (
 	maxRetries = 3
 )
 
-func savePieceToFile(pieceData []byte, downloadPath string) error {
+func SavePieceToFile(pieceData []byte, downloadPath string) error {
 	file, err := os.OpenFile(downloadPath, os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("error opening file: %v", err)
@@ -146,7 +146,7 @@ func HandleDownloadPiece(tcpConn *net.TCPConn, pieceInd int, totalBlocks int, pi
 				if bytes.Equal(receivedPieceHash[:], []byte(expectedHash)) {
 					fmt.Println("Piece hash verified successfully")
 					if downloadPath != "" {
-						err := savePieceToFile(pieceData, downloadPath)
+						err := SavePieceToFile(pieceData, downloadPath)
 						if err != nil {
 							fmt.Println("Error saving piece to file:", err)
 							return nil
@@ -194,7 +194,7 @@ func DownloadPiece(bencodedValue string, downloadPath string, pieceIndex string)
 	return HandleDownloadPiece(tcpConn, pieceInd, totalBlocks, pieceLength, pieceReceivedIndex, pieceData, downloadPath, &metadata.Info)
 
 }
-func addPiecesToQueue(totalPieces int) {
+func AddPiecesToQueue(totalPieces int) {
 	for i := 0; i < totalPieces; i++ {
 		queue.Push(i)
 	}
@@ -207,7 +207,7 @@ func DownloadFile(bencodedValue string, downloadPath string) {
 	}
 	totalPieces := len(metadata.Info.Pieces) / 20
 	file := make([]byte, 0)
-	addPiecesToQueue(totalPieces)
+	AddPiecesToQueue(totalPieces)
 	for !queue.Empty() {
 		pieceIndex := queue.Front()
 		queue.Pop()
@@ -215,7 +215,7 @@ func DownloadFile(bencodedValue string, downloadPath string) {
 		file = append(file, pieceData...)
 
 	}
-	err = savePieceToFile(file, downloadPath)
+	err = SavePieceToFile(file, downloadPath)
 	if err != nil {
 		fmt.Println("error saving to ", downloadPath)
 		return
