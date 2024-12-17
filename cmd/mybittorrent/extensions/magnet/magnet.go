@@ -268,15 +268,19 @@ func DownloadPiece(metadataPieceContents *torrent.InfoData, pieceIndex string, d
 func DownloadFile(metadataPieceContents *torrent.InfoData, downloadPath string, tcpConn *net.TCPConn) {
 	totalPieces := len(metadataPieceContents.Pieces) / 20
 	file := make([]byte, 0)
-	fmt.Println("total pieces",totalPieces)
+	fmt.Println("total pieces", totalPieces)
 	download.AddPiecesToQueue(totalPieces)
 	for !queue.Empty() {
 		pieceIndex := queue.Front()
 		queue.Pop()
-		fmt.Println(pieceIndex)
-		// interested := []byte{0, 0, 0, 1, 2}
-		//  tcpConn.Write(interested)
+		fmt.Println("piece index", pieceIndex)
 		pieceData := DownloadPiece(metadataPieceContents, strconv.Itoa(pieceIndex), downloadPath, tcpConn)
+		interested := []byte{0, 0, 0, 1, 2}
+		_, err := tcpConn.Write(interested)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
 		file = append(file, pieceData...)
 
 	}
