@@ -1,4 +1,4 @@
-# Golang BitTorrent Client
+# GoTorrent
 [![progress-banner](https://backend.codecrafters.io/progress/bittorrent/76413f70-06a0-4bf7-b5f6-2bce17e39835)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
 
 
