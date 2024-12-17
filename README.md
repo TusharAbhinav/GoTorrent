@@ -1,35 +1,154 @@
+# Golang BitTorrent Client
 [![progress-banner](https://backend.codecrafters.io/progress/bittorrent/76413f70-06a0-4bf7-b5f6-2bce17e39835)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
 
-This is a starting point for Go solutions to the
-["Build Your Own BitTorrent" Challenge](https://app.codecrafters.io/courses/bittorrent/overview).
 
-In this challenge, you’ll build a BitTorrent client that's capable of parsing a
-.torrent file and downloading a file from a peer. Along the way, we’ll learn
-about how torrent files are structured, HTTP trackers, BitTorrent’s Peer
-Protocol, pipelining and more.
+## Overview
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+This project is a comprehensive, feature-rich BitTorrent client implemented in Golang.It provides a robust implementation of the BitTorrent protocol, supporting various operations from parsing magnet links to downloading files.
 
-# Passing the first stage
+## 🌟 Features
 
-The entry point for your BitTorrent implementation is in
-`cmd/mybittorrent/main.go`. Study and uncomment the relevant code, and push your
-changes to pass the first stage:
+- **Magnet Link Parsing**
+  - Extract detailed metadata from magnet links
+  - Handle complex magnet URI formats
+  - Resolve trackers and file information
 
-```sh
-git commit -am "pass 1st stage" # any msg
-git push origin master
+- **Torrent File Handling**
+  - Decode and parse .torrent files
+  - Extract comprehensive torrent metadata
+  - Support for various torrent file versions
+
+- **Peer Discovery and Management**
+  - Fetch peer information from trackers
+  - Perform robust peer handshakes
+  - Manage peer connections efficiently
+
+- **File Download Capabilities**
+  - Download complete files or specific pieces
+  - Piece-wise downloading with SHA-1 hash validation
+  - Support for large and small torrents
+
+- **Network Communication**
+  - Implement BitTorrent wire protocol
+  - Handle peer-to-peer communication
+  - Manage download and upload streams
+
+## 🛠 Prerequisites
+
+- Golang 1.20 or higher
+- Go Modules enabled
+
+## 📦 Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/TusharAbhinav/GoTorrent.git
+   cd cmd/mybittorrent
+   ```
+
+2. Install dependencies:
+   ```bash
+   go mod download
+   ```
+
+3. Build the application:
+   ```bash
+   go build -o mybittorrent
+   ```
+
+## 🚀 Usage
+
+### Command Line Interface
+
+The BitTorrent client supports multiple commands for various operations:
+
+#### Torrent File Commands
+- **Decode Torrent File**
+  ```bash
+  ./mybittorrent decode /path/to/torrent/file.torrent
+  ```
+
+- **Get Torrent Information**
+  ```bash
+  ./mybittorrent info /path/to/torrent/file.torrent
+  ```
+
+- **Fetch Peer Information**
+  ```bash
+  ./mybittorrent peers /path/to/torrent/file.torrent
+  ```
+
+#### Download Commands
+- **Download Specific Piece**
+  ```bash
+  ./mybittorrent download_piece /path/to/torrent/file.torrent piece_index
+  ```
+
+- **Download Complete File**
+  ```bash
+  ./mybittorrent download /path/to/torrent/file.torrent /path/to/output/file
+  ```
+
+#### Magnet Link Commands
+- **Parse Magnet Link**
+  ```bash
+  ./mybittorrent magnet_parse "magnet:?xt=urn:btih:..."
+  ```
+
+- **Download via Magnet Link**
+  ```bash
+  ./mybittorrent magnet_download "magnet:?xt=urn:btih:..." /path/to/output/file
+  ```
+
+## 📂 Project Structure
+
+```
+GoTorrent/
+│
+├── cmd/                  
+│   └── mybittorrent/
+│       └── main.go          # Application entry point
+│
+├── decode/               # Torrent file decoding
+│   └── decode.go         # Decoding logic
+│
+├── download/             # File download management
+│   └── download.go       # Download implementation
+│
+├── extensions/           # Additional protocol extensions
+│   └── magnet/
+│       └── magnet.go     # Magnet link handling
+│
+├── info/                 # Torrent file information
+│   └── info.go           # Torrent metadata extraction
+│
+├── peers/                # Peer discovery and management
+│   └── peers.go          # Peer-related functionality
+│
+├── queue/                # Download queue management
+│   └── queue.go          # Piece download queuing
+│
+├── tcp/                  # TCP communication
+│   └── tcp.go            # Low-level network communication
+│
+├── torrent/              # Torrent file processing
+│   └── torrent.go        # Core torrent file handling
+│
+├── go.mod                # Go module definition
+├── go.sum                # Dependency lockfile
+└── README.md             # Project documentation
 ```
 
-Time to move on to the next stage!
 
-# Stage 2 & beyond
+## ⚠️ Limitations
 
-Note: This section is for stages 2 and beyond.
+- Currently supports single-file torrents
+- Limited to public trackers
+- Basic piece validation
 
-1. Ensure you have `go (1.19)` installed locally
-1. Run `./your_bittorrent.sh` to run your program, which is implemented in
-   `cmd/mybittorrent/main.go`.
-1. Commit your changes and run `git push origin master` to submit your solution
-   to CodeCrafters. Test output will be streamed to your terminal.
+## 🙌 Acknowledgments
+
+- CodeCrafters Challenge
+- BitTorrent Protocol Specification
+- Open-source BitTorrent community
+
